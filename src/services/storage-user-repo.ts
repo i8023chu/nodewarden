@@ -23,7 +23,7 @@ function mapUserRow(row: any): User {
     securityStamp: row.security_stamp,
     role: row.role === 'admin' ? 'admin' : 'user',
     status: row.status === 'banned' ? 'banned' : 'active',
-    verifyDevices: row.verify_devices == null ? true : !!row.verify_devices,
+    verifyDevices: row.verify_devices == null ? false : !!row.verify_devices,
     totpSecret: row.totp_secret ?? null,
     totpRecoveryCode: row.totp_recovery_code ?? null,
     yubikeyKey1: row.yubikey_key1 ?? null,
@@ -111,6 +111,21 @@ export async function saveUser(db: D1Database, safeBind: SafeBind, user: User): 
 
 export async function createUser(db: D1Database, safeBind: SafeBind, user: User): Promise<void> {
   await saveUser(db, safeBind, user);
+}
+
+export async function upgradePasswordVerifier(
+  db: D1Database,
+  userId: string,
+  expectedVerifier: string,
+  securityStamp: string,
+  newVerifier: string
+): Promise<boolean> {
+  // Update only the verifier, preserving vault keys, timestamps and sessions.
+  // A concurrent password change, disable or delete must not be overwritten.
+  const result = await db.prepare(
+    "UPDATE users SET master_password_hash = ? WHERE id = ? AND master_password_hash = ? AND security_stamp = ? AND status = 'active'"
+  ).bind(newVerifier, userId, expectedVerifier, securityStamp).run();
+  return (result.meta.changes ?? 0) > 0;
 }
 
 export async function createFirstUser(db: D1Database, safeBind: SafeBind, user: User): Promise<boolean> {
